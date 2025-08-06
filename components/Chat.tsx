@@ -35,13 +35,6 @@ const generateId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 const DEFAULT_SYSTEM_PROMPT = `You are Qwen, a helpful AI assistant.
 
 CRITICAL RULES:
-- NEVER make up problems, scenarios, or questions that the user didn't ask
-- NEVER assume the user is asking about math, coding, or technical problems unless they explicitly mention them
-- NEVER role-play as a user asking questions about Qwen or any platform
-- NEVER respond as if you're having a conversation with yourself
-- NEVER create math problems, coding challenges, or academic questions out of nowhere
-- If the user says "Hey", "Hello", "Hi", or similar greetings, ONLY respond with a simple greeting like "Hello! How can I help you today?"
-- Keep responses short and relevant (1-2 sentences maximum)
 - Only respond to what the user actually said, not what you think they might want
 - NEVER mention Qwen platform features, tools, or getting started guides unless the user specifically asks about them
 
@@ -117,7 +110,33 @@ export default ({ context }: { context: LlamaContext }) => {
                 fullPrompt = `${systemPrompt}\n\n${conversationHistory}\nUser: ${message}`;
             }
             
-            const response = await sendMessage(context, message);
+            // Create a streaming message that updates in real-time
+            const streamingMessageId = generateId();
+            const streamingMessage: Message = {
+                id: streamingMessageId,
+                text: "",
+                isUser: false,
+                timestamp: new Date()
+            };
+            
+            // Add the streaming message and get its index
+            setMessages(prev => [...prev, streamingMessage]);
+            
+            const response = await sendMessage(context, message, (token: string) => {
+                // Update the streaming message in real-time
+                setMessages(prev => {
+                    const newMessages = [...prev];
+                    // Find the streaming message by ID
+                    const streamingIndex = newMessages.findIndex(msg => msg.id === streamingMessageId);
+                    if (streamingIndex !== -1) {
+                        newMessages[streamingIndex] = {
+                            ...newMessages[streamingIndex],
+                            text: newMessages[streamingIndex].text + token
+                        };
+                    }
+                    return newMessages;
+                });
+            });
             
             if (response && response.trim()) {
                 return response;
@@ -146,18 +165,60 @@ export default ({ context }: { context: LlamaContext }) => {
         setMessages(prev => [...prev, userMessage]);
         setInputText("");
 
-        // Create AI response
+        // Create AI response (streaming is handled in createCompletion)
         const aiResponse = await createCompletion(userMessage.text);
         
+        // No need to create another message - streaming already created it
+        // Just ensure the final response is cleaned and complete
         if (aiResponse) {
-            const aiMessage: Message = {
-                id: generateId(),
-                text: aiResponse,
-                isUser: false,
-                timestamp: new Date()
-            };
-            setMessages(prev => [...prev, aiMessage]);
+            // Update the streaming message with the final cleaned response
+            setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessage = newMessages[newMessages.length - 1];
+                if (lastMessage && !lastMessage.isUser) {
+                    // Update the last AI message with the final cleaned response
+                    newMessages[newMessages.length - 1] = {
+                        ...lastMessage,
+                        text: aiResponse
+                    };
+                }
+                return newMessages;
+            });
         }
+    };
+
+    const renderTextWithThinking = (text: string) => {
+        // Check if <think> appears in the text
+        const thinkIndex = text.indexOf('<think>');
+        
+        if (thinkIndex === -1) {
+            // No thinking content, render all text in black
+            return (
+                <Text style={{ color: '#1f2937' }}>
+                    {text}
+                </Text>
+            );
+        }
+        
+        // Split text into before-thinking and thinking parts
+        const beforeThinking = text.substring(0, thinkIndex);
+        const thinkingAndAfter = text.substring(thinkIndex);
+        
+        // Remove the <think> tag from the thinking content
+        const thinkingContent = thinkingAndAfter.replace(/<\/?think>/g, '');
+        
+        return (
+            <>
+                {beforeThinking && (
+                    <Text style={{ color: '#1f2937' }}>
+                        {beforeThinking}
+                    </Text>
+                )}
+                <Text style={{ color: '#9ca3af', fontStyle: 'italic' }}>
+                    {thinkingContent}
+                </Text>
+            </>
+        );
     };
 
     const scrollToBottom = () => {
@@ -258,7 +319,7 @@ export default ({ context }: { context: LlamaContext }) => {
                     lineHeight: 24,
                     color: '#1f2937'
                 }}>
-                    {message.text}
+                    {renderTextWithThinking(message.text)}
                 </Text>
                 <Text style={{
                     fontSize: 12,

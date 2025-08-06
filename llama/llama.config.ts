@@ -26,8 +26,16 @@ export const loadModel = async (modelPath: string) => {
 
 // Clean response text by removing unwanted tokens
 const cleanResponse = (text: string): string => {
-    return text
-        .replace(/<think>.*?<\/think>/gs, '') // Remove think tags
+    // Limit thinking content to first 200 characters to reduce token usage
+    const limitedThinking = text.replace(/<think>(.*?)<\/think>/gs, (match, thinkingContent) => {
+        if (thinkingContent.length > 200) {
+            return `<think>${thinkingContent.substring(0, 200)}...</think>`;
+        }
+        return match;
+    });
+    
+    return limitedThinking
+        .replace(/<think>.*?<\/think>/gs, '') // Remove think tags and their content
         .replace(/REDACTED_SPECIAL_TOKEN/g, '') // Remove redacted tokens
         .replace(/<\|.*?\|>/g, '') // Remove any remaining special tokens
         .replace(/< \｜end_of_sentence\｜>/gi, '') // Remove end of sentence tokens
@@ -36,9 +44,12 @@ const cleanResponse = (text: string): string => {
         .trim();
 };
 
-export const sendMessage = async (context: LlamaContext, message: string) => {
+export const sendMessage = async (context: LlamaContext, message: string, onToken?: (token: string) => void) => {
     try {
-        console.log("Starting completion for message:", message);
+        console.log("🚀 Starting completion for message:", message);
+        console.log("⏱️  Starting token generation...");
+        let tokenCount = 0;
+        const startTime = Date.now();
         
         const msgResult = await context.completion(
             {
@@ -48,20 +59,30 @@ export const sendMessage = async (context: LlamaContext, message: string) => {
                         content: message,
                     },
                 ],
-                n_predict: 1000,
+                n_predict: 256, // Reduced from 1000 to limit response length
                 stop: stopWords,
                 temperature: 0.7,
                 top_p: 0.9,
+
             },
             (data) => {
-                // Log progress if needed
+                // Log tokens as they come out in real-time
                 if (data.token) {
-                    console.log("Token received:", data.token);
+                    tokenCount++;
+                    const elapsed = Date.now() - startTime;
+                    console.log(`🔄 TOKEN #${tokenCount} (${elapsed}ms): "${data.token}"`);
+                    
+                    // Call the streaming callback if provided
+                    if (onToken) {
+                        onToken(data.token);
+                    }
                 }
             },
         );
 
-        console.log("Completion result:", msgResult);
+        const endTime = Date.now();
+        const totalTime = endTime - startTime;
+        console.log(`✅ Completion finished in ${totalTime}ms with ${tokenCount} tokens`);
         console.log("Response text:", msgResult.text);
         
         const cleanedText = cleanResponse(msgResult.text || "");
