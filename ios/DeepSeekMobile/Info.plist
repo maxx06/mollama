@@ -45,6 +45,8 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app needs access to your photo library to select images for AI analysis with the Qwen2.5-VL model.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

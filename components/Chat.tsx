@@ -13,10 +13,12 @@ import {
     Dimensions,
     Animated,
     Modal,
-    Alert
+    Alert,
+    Image
 } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as ImagePicker from 'expo-image-picker';
 
 const { width, height } = Dimensions.get('window');
 
@@ -25,6 +27,7 @@ interface Message {
     text: string;
     isUser: boolean;
     timestamp: Date;
+    imageUri?: string;
 }
 
 interface ModelConfig {
@@ -75,6 +78,7 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
     const [error, setError] = useState<string | null>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState(getSystemPrompt(selectedModel));
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const scrollViewRef = useRef<ScrollView>(null);
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -99,6 +103,31 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
         );
     };
 
+    const pickImage = async () => {
+        // Request permissions
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission needed', 'Please grant permission to access your photo library');
+            return;
+        }
+
+        // Launch image picker
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.8,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+            setSelectedImage(result.assets[0].uri);
+        }
+    };
+
+    const removeImage = () => {
+        setSelectedImage(null);
+    };
+
     // Welcome message
     useEffect(() => {
         const welcomeMessage: Message = {
@@ -117,7 +146,7 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
         }).start();
     }, []);
 
-    const createCompletion = async (message: string) => {
+    const createCompletion = async (message: string, imageUri?: string) => {
         try {
             setIsLoading(true);
             setError(null);
@@ -164,7 +193,7 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                     }
                     return newMessages;
                 });
-            }, selectedModel.maxParams);
+            }, selectedModel.maxParams, imageUri);
             
             if (response && response.trim()) {
                 // Update the streaming message with the final cleaned response
@@ -193,20 +222,22 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
     };
 
     const handleSend = async () => {
-        if (!inputText.trim() || isLoading) return;
+        if ((!inputText.trim() && !selectedImage) || isLoading) return;
 
         const userMessage: Message = {
             id: generateId(),
             text: inputText.trim(),
             isUser: true,
-            timestamp: new Date()
+            timestamp: new Date(),
+            imageUri: selectedImage || undefined
         };
 
         setMessages(prev => [...prev, userMessage]);
         setInputText("");
+        setSelectedImage(null);
 
         // Create AI response (streaming is handled in createCompletion)
-        await createCompletion(userMessage.text);
+        await createCompletion(userMessage.text, userMessage.imageUri);
     };
 
     const renderMarkdownText = (text: string) => {
@@ -315,13 +346,27 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                 shadowRadius: 4,
                 elevation: 2
             }}>
-                <Text style={{
-                    color: '#ffffff',
-                    fontSize: 16,
-                    lineHeight: 22
-                }}>
-                    {message.text}
-                </Text>
+                {message.imageUri && (
+                    <Image 
+                        source={{ uri: message.imageUri }}
+                        style={{
+                            width: 200,
+                            height: 150,
+                            borderRadius: 12,
+                            marginBottom: 8
+                        }}
+                        resizeMode="cover"
+                    />
+                )}
+                {message.text && (
+                    <Text style={{
+                        color: '#ffffff',
+                        fontSize: 16,
+                        lineHeight: 22
+                    }}>
+                        {message.text}
+                    </Text>
+                )}
             </View>
             <Text style={{
                 fontSize: 12,
@@ -551,6 +596,40 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                 paddingHorizontal: 16,
                 paddingVertical: 12
             }}>
+                {/* Selected Image Preview */}
+                {selectedImage && (
+                    <View style={{
+                        marginBottom: 12,
+                        position: 'relative'
+                    }}>
+                        <Image 
+                            source={{ uri: selectedImage }}
+                            style={{
+                                width: 120,
+                                height: 90,
+                                borderRadius: 8
+                            }}
+                            resizeMode="cover"
+                        />
+                        <TouchableOpacity
+                            onPress={removeImage}
+                            style={{
+                                position: 'absolute',
+                                top: -8,
+                                right: -8,
+                                width: 24,
+                                height: 24,
+                                borderRadius: 12,
+                                backgroundColor: '#ef4444',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                            }}
+                        >
+                            <Ionicons name="close" size={16} color="#ffffff" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+                
                 <View style={{
                     flexDirection: 'row',
                     alignItems: 'flex-end',
@@ -561,6 +640,24 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                     paddingHorizontal: 16,
                     paddingVertical: 8
                 }}>
+                    {/* Image Picker Button - Only show for Qwen2.5-VL */}
+                    {selectedModel.id === 'qwen2.5-vl-3b' && (
+                        <TouchableOpacity
+                            onPress={pickImage}
+                            style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor: '#f3f4f6',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 8
+                            }}
+                        >
+                            <Ionicons name="image" size={18} color="#6b7280" />
+                        </TouchableOpacity>
+                    )}
+                    
                     <TextInput
                         style={{
                             flex: 1,
@@ -569,7 +666,7 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                             maxHeight: 100,
                             paddingVertical: 8
                         }}
-                        placeholder="Type a message..."
+                        placeholder={selectedModel.id === 'qwen2.5-vl-3b' ? "Type a message or add an image..." : "Type a message..."}
                         placeholderTextColor="#9ca3af"
                         value={inputText}
                         onChangeText={setInputText}
@@ -579,12 +676,12 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                     />
                     <TouchableOpacity
                         onPress={handleSend}
-                        disabled={!inputText.trim() || isLoading}
+                        disabled={(!inputText.trim() && !selectedImage) || isLoading}
                         style={{
                             width: 36,
                             height: 36,
                             borderRadius: 18,
-                            backgroundColor: inputText.trim() && !isLoading ? '#6366f1' : '#e5e7eb',
+                            backgroundColor: ((inputText.trim() || selectedImage) && !isLoading) ? '#6366f1' : '#e5e7eb',
                             justifyContent: 'center',
                             alignItems: 'center',
                             marginLeft: 8
@@ -593,7 +690,7 @@ export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext
                         <Ionicons 
                             name="send" 
                             size={18} 
-                            color={inputText.trim() && !isLoading ? '#ffffff' : '#9ca3af'} 
+                            color={((inputText.trim() || selectedImage) && !isLoading) ? '#ffffff' : '#9ca3af'} 
                         />
                     </TouchableOpacity>
                 </View>

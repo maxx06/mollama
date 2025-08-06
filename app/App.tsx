@@ -15,6 +15,7 @@ interface ModelConfig {
     name: string;
     description: string;
     url: string;
+    mmprojUrl?: string;
     sizeGB: number;
     maxParams: number;
     recommended: boolean;
@@ -35,6 +36,7 @@ const AVAILABLE_MODELS: ModelConfig[] = [
         name: "Qwen2.5-VL 3B",
         description: "Multimodal model that can see and understand images",
         url: "https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+        mmprojUrl: "https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-F16.gguf",
         sizeGB: 1.93,
         maxParams: 4096,
         recommended: false
@@ -83,6 +85,10 @@ export default () => {
         return FileSystem.documentDirectory + `model_${model.id}.gguf`;
     };
 
+    const getMmprojPath = (model: ModelConfig) => {
+        return FileSystem.documentDirectory + `mmproj_${model.id}.gguf`;
+    };
+
     const validateModelSelection = (model: ModelConfig): { valid: boolean; message?: string } => {
         if (model.sizeGB > PARAMETER_LIMITS.maxModelSizeGB) {
             return { 
@@ -114,16 +120,25 @@ export default () => {
 
     const downloadModel = async (model: ModelConfig) => {
         try {
+            console.log("🔄 Starting download/load for model:", model.name, "ID:", model.id);
             setStatus("Checking for existing model...");
             const modelPath = getModelPath(model);
-            const isExists = (await FileSystem.getInfoAsync(modelPath)).exists;
+            const mmprojPath = model.mmprojUrl ? getMmprojPath(model) : null;
+            
+            const modelExists = (await FileSystem.getInfoAsync(modelPath)).exists;
+            const mmprojExists = mmprojPath ? (await FileSystem.getInfoAsync(mmprojPath)).exists : true;
+            
+            console.log("📁 Model exists:", modelExists, "Path:", modelPath);
+            console.log("📁 Mmproj exists:", mmprojExists, "Path:", mmprojPath || "none");
+            
+            const isExists = modelExists && mmprojExists;
             
             if (isExists) {
                 setStatus("Loading existing model...");
                 console.log("Model exists, loading...");
                 try {
-                    const context = await loadModel(modelPath);
-                    console.log("Model loaded successfully!");
+                    const context = await loadModel(modelPath, mmprojPath || undefined);
+                    console.log("✅ Model loaded successfully:", model.name, "ID:", model.id);
                     setContext(context);
                     setLoading(false);
                     return;
@@ -133,6 +148,9 @@ export default () => {
                     // Delete corrupted file and re-download
                     try {
                         await FileSystem.deleteAsync(modelPath);
+                        if (mmprojPath) {
+                            await FileSystem.deleteAsync(mmprojPath);
+                        }
                     } catch (deleteError) {
                         console.error("Error deleting corrupted model:", deleteError);
                     }
@@ -140,17 +158,34 @@ export default () => {
             }
 
             setStatus("Downloading model...");
-            const res = await downloadResumable(model).downloadAsync();
-            console.log("Finished downloading to ", res?.uri);
+            const modelRes = await downloadResumable(model).downloadAsync();
+            console.log("Finished downloading model to ", modelRes?.uri);
 
-            if (!res?.uri) {
-                throw new Error("Download failed - no URI returned");
+            if (!modelRes?.uri) {
+                throw new Error("Model download failed - no URI returned");
+            }
+
+            // Download mmproj file if needed
+            let mmprojRes = null;
+            if (model.mmprojUrl && mmprojPath) {
+                setStatus("Downloading multimodal projection file...");
+                const mmprojResumable = FileSystem.createDownloadResumable(
+                    model.mmprojUrl,
+                    mmprojPath,
+                    {},
+                    (downloadProgress) => {
+                        const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+                        setDownloadProgress(progress);
+                    }
+                );
+                mmprojRes = await mmprojResumable.downloadAsync();
+                console.log("Finished downloading mmproj to ", mmprojRes?.uri);
             }
 
             setStatus("Loading downloaded model...");
-            console.log("Loading model from:", res.uri);
-            const context = await loadModel(res.uri);
-            console.log("Model loaded successfully!");
+            console.log("Loading model from:", modelRes.uri);
+            const context = await loadModel(modelRes.uri, mmprojPath || undefined);
+            console.log("✅ Model loaded successfully:", model.name, "ID:", model.id);
             setContext(context);
             setLoading(false);
         } catch (e) {
