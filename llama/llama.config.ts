@@ -40,7 +40,8 @@ const cleanResponse = (text: string): string => {
         .replace(/<\|.*?\|>/g, '') // Remove any remaining special tokens
         .replace(/< \｜end_of_sentence\｜>/gi, '') // Remove end of sentence tokens
         .replace(/<\｜.*?end.*?\｜>/gi, '') // Remove any end-related tokens
-        .replace(/\s+/g, ' ') // Normalize whitespace
+        .replace(/\n\s*\n\s*\n/g, '\n\n') // Normalize multiple newlines to double newlines
+        .replace(/[ \t]+/g, ' ') // Normalize horizontal whitespace only
         .trim();
 };
 
@@ -59,7 +60,7 @@ export const sendMessage = async (context: LlamaContext, message: string, onToke
                         content: message,
                     },
                 ],
-                n_predict: 256, // Reduced from 1000 to limit response length
+                n_predict: 2048, // Increased to allow longer, more complete responses
                 stop: stopWords,
                 temperature: 0.7,
                 top_p: 0.9,

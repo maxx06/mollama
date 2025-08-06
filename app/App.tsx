@@ -7,7 +7,7 @@ import { LlamaContext } from "llama.rn";
 import { Text, View, ActivityIndicator } from "react-native";
 
 const downloadLink =
-    "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q5_K_M.gguf";
+    "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q5_K_M.gguf";
 
 export default () => {
     const [context, setContext] = useState<LlamaContext | null | undefined>(
@@ -32,20 +32,41 @@ export default () => {
     const downloadModel = async () => {
         try {
             setStatus("Checking for existing model...");
-            const isExists = (await FileSystem.getInfoAsync(
-                FileSystem.documentDirectory + "model.gguf",
-            )).exists;
+            const modelPath = FileSystem.documentDirectory + "model.gguf";
+            console.log("Looking for model at:", modelPath);
+            console.log("Document directory:", FileSystem.documentDirectory);
+            
+            // List all files in document directory to see what's there
+            try {
+                const docDir = FileSystem.documentDirectory;
+                if (docDir) {
+                    const files = await FileSystem.readDirectoryAsync(docDir);
+                    console.log("Files in document directory:", files);
+                } else {
+                    console.log("Document directory is null");
+                }
+            } catch (e) {
+                console.log("Could not read directory:", e);
+            }
+            
+            const fileInfo = await FileSystem.getInfoAsync(modelPath);
+            console.log("File info:", fileInfo);
+            const isExists = fileInfo.exists;
             
             if (isExists) {
                 setStatus("Loading existing model...");
-                console.log("Model exists, loading...");
-                const context = await loadModel(
-                    FileSystem.documentDirectory + "model.gguf",
-                );
-                console.log("Model loaded successfully!");
-                setContext(context);
-                setLoading(false);
-                return;
+                console.log("Model exists, loading from:", modelPath);
+                try {
+                    const context = await loadModel(modelPath);
+                    console.log("Model loaded successfully!");
+                    setContext(context);
+                    setLoading(false);
+                    return;
+                } catch (loadError) {
+                    console.error("Error loading existing model:", loadError);
+                    console.log("Will re-download model...");
+                    // Continue to download if loading fails
+                }
             }
 
             setStatus("Downloading model...");

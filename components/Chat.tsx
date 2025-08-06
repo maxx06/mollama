@@ -122,7 +122,7 @@ export default ({ context }: { context: LlamaContext }) => {
             // Add the streaming message and get its index
             setMessages(prev => [...prev, streamingMessage]);
             
-            const response = await sendMessage(context, message, (token: string) => {
+            const response = await sendMessage(context, fullPrompt, (token: string) => {
                 // Update the streaming message in real-time
                 setMessages(prev => {
                     const newMessages = [...prev];
@@ -139,6 +139,18 @@ export default ({ context }: { context: LlamaContext }) => {
             });
             
             if (response && response.trim()) {
+                // Update the streaming message with the final cleaned response
+                setMessages(prev => {
+                    const newMessages = [...prev];
+                    const streamingIndex = newMessages.findIndex(msg => msg.id === streamingMessageId);
+                    if (streamingIndex !== -1) {
+                        newMessages[streamingIndex] = {
+                            ...newMessages[streamingIndex],
+                            text: response
+                        };
+                    }
+                    return newMessages;
+                });
                 return response;
             } else {
                 throw new Error("Empty response from AI");
@@ -166,25 +178,60 @@ export default ({ context }: { context: LlamaContext }) => {
         setInputText("");
 
         // Create AI response (streaming is handled in createCompletion)
-        const aiResponse = await createCompletion(userMessage.text);
+        await createCompletion(userMessage.text);
+    };
+
+    const renderMarkdownText = (text: string) => {
+        // Split text by markdown patterns
+        const parts = text.split(/(\*\*.*?\*\*|###.*?(?=\n|$))/g);
         
-        // No need to create another message - streaming already created it
-        // Just ensure the final response is cleaned and complete
-        if (aiResponse) {
-            // Update the streaming message with the final cleaned response
-            setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && !lastMessage.isUser) {
-                    // Update the last AI message with the final cleaned response
-                    newMessages[newMessages.length - 1] = {
-                        ...lastMessage,
-                        text: aiResponse
-                    };
-                }
-                return newMessages;
-            });
-        }
+        return parts.map((part, index) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                // Bold text
+                const boldText = part.slice(2, -2);
+                return (
+                    <Text key={index} style={{ 
+                        color: '#1f2937', 
+                        fontWeight: 'bold' 
+                    }}>
+                        {boldText}
+                    </Text>
+                );
+            } else if (part.startsWith('###')) {
+                // Header
+                const headerText = part.slice(3).trim();
+                return (
+                    <Text key={index} style={{ 
+                        color: '#1f2937', 
+                        fontWeight: 'bold',
+                        fontSize: 18,
+                        marginTop: 16,
+                        marginBottom: 8
+                    }}>
+                        {headerText}
+                    </Text>
+                );
+            } else if (part.trim() === '---') {
+                // Horizontal rule
+                return (
+                    <View key={index} style={{
+                        height: 1,
+                        backgroundColor: '#e5e7eb',
+                        marginVertical: 12
+                    }} />
+                );
+            } else if (part.trim() === '') {
+                // Empty line - add spacing
+                return <Text key={index} style={{ height: 8 }} />;
+            } else {
+                // Regular text
+                return (
+                    <Text key={index} style={{ color: '#1f2937' }}>
+                        {part}
+                    </Text>
+                );
+            }
+        });
     };
 
     const renderTextWithThinking = (text: string) => {
@@ -192,12 +239,8 @@ export default ({ context }: { context: LlamaContext }) => {
         const thinkIndex = text.indexOf('<think>');
         
         if (thinkIndex === -1) {
-            // No thinking content, render all text in black
-            return (
-                <Text style={{ color: '#1f2937' }}>
-                    {text}
-                </Text>
-            );
+            // No thinking content, render all text with markdown
+            return renderMarkdownText(text);
         }
         
         // Split text into before-thinking and thinking parts
@@ -209,11 +252,7 @@ export default ({ context }: { context: LlamaContext }) => {
         
         return (
             <>
-                {beforeThinking && (
-                    <Text style={{ color: '#1f2937' }}>
-                        {beforeThinking}
-                    </Text>
-                )}
+                {beforeThinking && renderMarkdownText(beforeThinking)}
                 <Text style={{ color: '#9ca3af', fontStyle: 'italic' }}>
                     {thinkingContent}
                 </Text>
