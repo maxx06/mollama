@@ -27,26 +27,54 @@ interface Message {
     timestamp: Date;
 }
 
+interface ModelConfig {
+    id: string;
+    name: string;
+    description: string;
+    url: string;
+    sizeGB: number;
+    maxParams: number;
+    recommended: boolean;
+}
+
 // Simple ID generator to avoid uuid crypto issues
 let messageIdCounter = 0;
 const generateId = () => `msg_${Date.now()}_${++messageIdCounter}`;
 
 // Default system prompt
-const DEFAULT_SYSTEM_PROMPT = `You are Qwen, a helpful AI assistant.
+const getSystemPrompt = (model: ModelConfig) => {
+    const basePrompt = `You are a helpful AI assistant.
 
 CRITICAL RULES:
 - Only respond to what the user actually said, not what you think they might want
-- NEVER mention Qwen platform features, tools, or getting started guides unless the user specifically asks about them
+- NEVER mention platform features, tools, or getting started guides unless the user specifically asks about them
 
 You should be friendly and helpful, but never create problems or scenarios that don't exist. You are NOT a user asking questions - you are the assistant answering them.`;
 
-export default ({ context }: { context: LlamaContext }) => {
+    // Add model-specific instructions
+    switch (model.id) {
+        case 'qwen3-1.7b':
+            return basePrompt.replace('You are a helpful AI assistant', 'You are Qwen, a helpful AI assistant');
+        case 'qwen2.5-vl-3b':
+            return basePrompt.replace('You are a helpful AI assistant', 'You are Qwen2.5-VL, a helpful AI assistant that can see and understand images');
+        case 'phi-3-mini':
+            return basePrompt.replace('You are a helpful AI assistant', 'You are Phi-3, a helpful AI assistant');
+        case 'llama3-1b':
+            return basePrompt.replace('You are a helpful AI assistant', 'You are Llama, a helpful AI assistant');
+        default:
+            return basePrompt;
+    }
+};
+
+const DEFAULT_SYSTEM_PROMPT = getSystemPrompt({ id: 'qwen3-1.7b' } as ModelConfig);
+
+export default ({ context, selectedModel, onMenuPress }: { context: LlamaContext; selectedModel: ModelConfig; onMenuPress?: () => void }) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showSettings, setShowSettings] = useState(false);
-    const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
+    const [systemPrompt, setSystemPrompt] = useState(getSystemPrompt(selectedModel));
     const scrollViewRef = useRef<ScrollView>(null);
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -65,7 +93,7 @@ export default ({ context }: { context: LlamaContext }) => {
                 { 
                     text: 'Reset', 
                     style: 'destructive',
-                    onPress: () => saveSystemPrompt(DEFAULT_SYSTEM_PROMPT)
+                    onPress: () => saveSystemPrompt(getSystemPrompt(selectedModel))
                 }
             ]
         );
@@ -75,7 +103,7 @@ export default ({ context }: { context: LlamaContext }) => {
     useEffect(() => {
         const welcomeMessage: Message = {
             id: generateId(),
-            text: "Welcome to Qwen Mobile! I'm here to help you with any questions or tasks. What would you like to work on today?",
+            text: `Welcome to ${selectedModel.name}! I'm here to help you with any questions or tasks. What would you like to work on today?`,
             isUser: false,
             timestamp: new Date()
         };
@@ -136,7 +164,7 @@ export default ({ context }: { context: LlamaContext }) => {
                     }
                     return newMessages;
                 });
-            });
+            }, selectedModel.maxParams);
             
             if (response && response.trim()) {
                 // Update the streaming message with the final cleaned response
@@ -377,20 +405,27 @@ export default ({ context }: { context: LlamaContext }) => {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
             {/* Header */}
-            <View style={{
-                backgroundColor: '#ffffff',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                borderBottomWidth: 1,
-                borderBottomColor: '#e5e7eb',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-            }}>
+            <SafeAreaView style={{ backgroundColor: '#ffffff' }}>
                 <View style={{
+                    backgroundColor: '#ffffff',
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#e5e7eb',
                     flexDirection: 'row',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
                 }}>
+                    <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center'
+                    }}>
+                    <TouchableOpacity 
+                        style={{ marginRight: 12 }}
+                        onPress={onMenuPress}
+                    >
+                        <Ionicons name="menu" size={24} color="#6b7280" />
+                    </TouchableOpacity>
                     <View style={{
                         width: 32,
                         height: 32,
@@ -408,13 +443,13 @@ export default ({ context }: { context: LlamaContext }) => {
                             fontWeight: '600',
                             color: '#1f2937'
                         }}>
-                            Qwen Mobile
+                            {selectedModel.name}
                         </Text>
                         <Text style={{
                             fontSize: 12,
                             color: '#6b7280'
                         }}>
-                            AI Assistant
+                            AI Assistant • {selectedModel.sizeGB}GB
                         </Text>
                     </View>
                 </View>
@@ -431,7 +466,8 @@ export default ({ context }: { context: LlamaContext }) => {
                 >
                     <Ionicons name="ellipsis-horizontal" size={18} color="#6b7280" />
                 </TouchableOpacity>
-            </View>
+                    </View>
+                </SafeAreaView>
 
             {/* Messages */}
             <ScrollView

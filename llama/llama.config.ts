@@ -45,7 +45,7 @@ const cleanResponse = (text: string): string => {
         .trim();
 };
 
-export const sendMessage = async (context: LlamaContext, message: string, onToken?: (token: string) => void) => {
+export const sendMessage = async (context: LlamaContext, message: string, onToken?: (token: string) => void, maxParams?: number) => {
     try {
         console.log("🚀 Starting completion for message:", message);
         console.log("⏱️  Starting token generation...");
@@ -60,7 +60,7 @@ export const sendMessage = async (context: LlamaContext, message: string, onToke
                         content: message,
                     },
                 ],
-                n_predict: 2048, // Increased to allow longer, more complete responses
+                n_predict: maxParams || 2048, // Use model-specific parameters or default
                 stop: stopWords,
                 temperature: 0.7,
                 top_p: 0.9,
